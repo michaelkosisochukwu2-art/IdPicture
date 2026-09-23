@@ -9,13 +9,19 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllers();
 
-// Register DbContext
+// Register DbContext with Azure SQL retry resilience
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions => sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorNumbersToAdd: null)
+    ));
 
 // REGISTER YOUR SERVICES & REPOSITORIES HERE:
 builder.Services.AddScoped<IGalleryService, GalleryService>();
-builder.Services.AddScoped<IGalleryRepository, GalleryRepositories>(); // Adjust GalleryRepository to match your class name
+builder.Services.AddScoped<IGalleryRepository, GalleryRepositories>();
 
 // Swagger configuration
 builder.Services.AddEndpointsApiExplorer();
@@ -23,12 +29,20 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// Enable Swagger in ALL environments (including Azure Production)
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyId API v1");
+    c.RoutePrefix = "swagger";
+});
+
+// Redirect root URL (/) straight to Swagger UI (/swagger)
+app.MapGet("/", context =>
+{
+    context.Response.Redirect("/swagger");
+    return Task.CompletedTask;
+});
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
